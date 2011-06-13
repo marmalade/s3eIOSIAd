@@ -1,0 +1,13 @@
+#!/usr/bin/env mkb
+#Builder mkb file for the s3eIOSIAd extension on iphone
+
+platform IPHONE
+
+option lib
+option arm
+
+option output-name="lib/iphone/libs3eIOSIAd.a"
+option output-name-debug="lib/iphone/libs3eIOSIAd_d.a"
+define S3E_BUILD_EXT
+
+subproject s3eIOSIAd_build
