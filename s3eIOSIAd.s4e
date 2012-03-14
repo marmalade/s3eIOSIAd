@@ -9,14 +9,14 @@
 # Please do not use this program/source code before you have read the
 # EULA and have agreed to be bound by its terms.
 #
-callbacks
-errors
+no_init_term
 no_template_code
 use_legacy_extavailable
+errors
 
 include:
-
-#include "s3eTypes.h"
+#include <s3eTypes.h>
+#include <s3eDevice.h>
 
 /**
  * @addtogroup s3egroup
@@ -24,145 +24,630 @@ include:
  */
 
 /**
- * @defgroup iosiadapigroup S3E iOS iAd API Reference
+ * @defgroup iosappstorebillingapigroup S3E iOS App Store Billing API Reference
  *
- * iAd is an iOS-only API that implements the functionality provided
- * by the iOS SDK's iAd Framework. This allows applications to display
- * paid-for banner adds by connecting with the iAd Network service.
+ * This API allows for in-app purchasing of arbitrary products setup by the
+ * user. This allows an application to extend itself by offering extra content
+ * for the user to purchase.
+ *
+ * Products are identified by a string identifier and must be globally unique.
+ * Product identifiers must be setup on the relevant store ahead of time and
+ * programmed into the application or retrieved from an external server; there
+ * is no opportunity for the application to obtain a list of available products
+ * through this API.
+ *
+ * Delivery of product information and any new data required once a purchase
+ * has been made is not handled by the store or through s3eIOSAppStoreBilling.
+ * This should be implemented through custom application code, using a server
+ * maintained by the developer/publisher.
+ *
+ * The application obtains information about a product by calling
+ * product @ref s3eIOSAppStoreBillingRequestProductInformation, and then
+ * purchases the by calling @ref s3eIOSAppStoreBillingRequestPayment.
+ *
+ * Note that unlike most s3e APIs, iOS App Store Billing provides Initialisation
+ * and Termination functions; s3eIOSAppStoreBillingStart must be called before
+ * using any other functions and s3eIOSAppStoreBillingStop called in order
+ * to clean up memory used when finished with. s3eIOSAppStoreBillingAvailable
+ * will also always return true - this should be ignored; instead use the
+ * return value of s3eIOSAppStoreBillingStart to determine if it is available.
+ * This behaviour is due internally to the fact that it both uses and predates
+ * the EDK extension mechanism.
  *
  * @supported
- * - ios: Devices running iOS version 4.0 or newer.
+ * - ios
  *
- * For more information on the functionality provided by this API,
- * see the "iOS iAd Overview" section of the S3E API Documentation.
+ * @platnote This API is for iOS only. For the equivalent in-app billing
+ * API for Android, see "S3E Android Market Billing".
  *
+ * For more information on the functionality provided by this API
+ * and how to set up a purchase on the Store, see the
+ * "iOS App Store Billing Overview" section of the S3E API Documentation.
+ */
+
+/**
+ * @}
+ * @addtogroup iosappstorebillingapigroup
  * @{
  */
 
 /**
- * iAd properties.
+ * The maximum length of a field name or value used in s3eProductInformation or
+ * s3ePaymentTransaction, including the null terminator.
  *
- * @see s3eIOSIAdGetInt
- * @see s3eIOSIAdSetInt
- * @par Required Header Files
- * s3eIOSIAd.h
+ * Any values returned by the store that are longer than this will be truncated.
+ * Note that strings for prices and locales are limited to a shorter length of
+ * ::S3E_IOSAPPSTOREBILLING_PRICE_STRING_MAX characters.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-typedef enum s3eIOSIAdProperty
-{
-    /**
-     * [int, read] return 1 if iAd is running 0 othewise.
-     */
-    S3E_IOSIAD_RUNNING,
-    /**
-     * [int, read] return 1 if a banner is currently loaded 0 othewise.
-     */
-    S3E_IOSIAD_BANNER_LOADED,
-    /**
-     * [int, read, write] return 1 if a banner is being shown, 0 otherwise.  Set
-     * to 1 to show banner, 0 to hide banner.
-     */
-    S3E_IOSIAD_BANNER_SHOW,
-    /**
-     * [int, read] return the current banner width, or 0 if no banner loaded
-     */
-    S3E_IOSIAD_BANNER_WIDTH,
-    /**
-     * [int, read] return the current banner height, or 0 if no banner loaded
-     */
-    S3E_IOSIAD_BANNER_HEIGHT,
-} s3eIOSIAdProperty;
+#define S3E_IOSAPPSTOREBILLING_STRING_MAX 256
 
 /**
- * iAd error codes.
+ * The maximum length of the @e m_FormattedPrice and @e m_PriceLocale string values
+ * of s3eProductInformation, including the null terminator.
  *
- * @see s3eIOSIAdGetError
- * @par Required Header Files
- * s3eIOSIAd.h
+ * Any values returned by the store that are longer than this will be truncated.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-typedef enum s3eIOSIAdError
-{
-    S3E_IOSIAD_ERROR_NONE          = 0,    ///< No error.
-    S3E_IOSIAD_ERR_PARAM           = 1,    ///< Invalid parameter.
-    S3E_IOSIAD_ERR_DEVICE          = 6,    ///< Device failed.
-    S3E_IOSIAD_ERR_UNSUPPORTED     = 7,    ///< The action requested is not supported.
-    S3E_IOSIAD_ERR_STATE           = 14,   ///< iAd could not perform the desired action because it is in the wrong state.
-} s3eIOSIAdError;
+#define S3E_IOSAPPSTOREBILLING_PRICE_STRING_MAX 64
 
 /**
- * iAd Callbacks.
+ * iOS App Store Billing error codes.
  *
- * @see s3eIOSIAdRegister
- * @see s3eIOSIAdUnRegister
  * @par Required Header Files
- * s3eIOSIAd.h
+ * s3eIOSAppStoreBilling.h
  */
-typedef enum s3eIOSIAdCallback
+typedef enum s3eIOSAppStoreBillingError
 {
-    S3E_IOSIAD_CALLBACK_BANNER_LOADED,
-    S3E_IOSIAD_CALLBACK_FAILED,
-    S3E_IOSIAD_CALLBACK_AD_STARTING,
-    S3E_IOSIAD_CALLBACK_AD_FINISHED,
-    S3E_IOSIAD_CALLBACK_MAX,
-} s3eIOSIAdCallback;
+    /**
+     * No Error.
+     */
+    S3E_IOSAPPSTOREBILLING_ERR_NONE                    = 0,
+
+    /**
+     * Invalid parameter.
+     */
+    S3E_IOSAPPSTOREBILLING_ERR_PARAM                   = 1,
+
+    /**
+     * Internal device error.
+     */
+    S3E_IOSAPPSTOREBILLING_ERR_DEVICE                  = 2,
+
+    /**
+     * Feature/function is unavailable on this device/platform.
+     */
+    S3E_IOSAPPSTOREBILLING_ERR_UNAVAIL                 = 5,
+
+    /**
+     * Out of memory performing operation.
+     */
+    S3E_IOSAPPSTOREBILLING_ERR_MEM                     = 8,
+
+    /**
+     * The system could not perform the desired action becasue iOS App Store
+     * Billing is in the wrong state (stopped/started).
+     */
+    S3E_IOSAPPSTOREBILLING_ERR_STATE                   = 14,
+} s3eIOSAppStoreBillingError;
+
+/**
+ * iOS App Store Billing Properties.
+ * @see s3eIOSAppStoreBillingGetInt
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+typedef enum s3eIOSAppStoreBillingProperty
+{
+    /**
+     * [read] Returns 1 if the application is authorised to make payments. 0 is
+     * returned if the user has set the device settings to not allow
+     * applications to connect to the store. In this situation, it will still
+     * be possible to obtain product information - and therefore display a
+     * storefront to the user - using
+     * @ref s3eIOSAppStoreBillingRequestProductInformation but calls to
+     * @ref s3eIOSAppStoreBillingRequestPayment will not result in payments
+     * being successfully processed.
+     */
+    S3E_IOSAPPSTOREBILLING_CAN_MAKE_PAYMENTS   = 0,
+
+    /**
+     * [read] Returns 1 between successful calls to s3eIOSAppStoreBillingStart()
+     * and any call to s3eIOSAppStoreBillingStop(). Returns 0 if billing has
+     * not been started and between calls to the stop and start functions.
+     * If this property is 0, all billing functions calls that return a success/
+     * erro value will fail apart from s3eIOSAppStoreBillingStart() and
+     * s3eIOSAppStoreBillingGetInt().
+     */
+    S3E_IOSAPPSTOREBILLING_IS_STARTED   = 1,
+} s3eIOSAppStoreBillingProperty;
+
+/**
+ * iOS App Store Billing product status codes.
+ *
+ * Indicates the status and validity of a product in the store.
+ * Some codes indicate general request failures, in which case any s3eProductInformation
+ * struct containing this code will have the empty string as its product ID.
+ * @see s3eProductInformation
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+typedef enum s3eProductStoreStatus
+{
+    /**
+     * Product code given represents a valid product found in the store.
+     */
+    S3E_PRODUCT_STORE_STATUS_VALID              = 0,
+
+    /**
+     * Product was not found in the store (code given was invalid).
+     */
+    S3E_PRODUCT_STORE_STATUS_NOT_FOUND          = 1,
+
+    /**
+     * Product(s) not found since a connection could not be established with the store.
+     * If an s3eProductInformation structure with this value as its m_ProductStoreStatus is passed
+     * to @ref s3eProductInformationCallbackFn, it's m_ProductID member will be NULL.
+     */
+    S3E_PRODUCT_STORE_STATUS_NO_CONNECTION      = 2,
+
+    /**
+     * A request to s3eIOSAppStoreBillingRestoreCompletedTransactions failed.
+     * If an s3eProductInformation structure with this value as its m_ProductStoreStatus is passed
+     * to @ref s3eProductInformationCallbackFn, it's m_ProductID member will be NULL.
+     */
+    S3E_PRODUCT_STORE_STATUS_RESTORE_FAILED     = 3,
+
+    /**
+     * All completed transactions have been restored (via s3eIOSAppStoreBillingRestoreCompletedTransactions).
+     * If an s3eProductInformation structure with this value as its m_ProductStoreStatus is passed
+     * to @ref s3eProductInformationCallbackFn, it's m_ProductID member will be NULL.
+     */
+    S3E_PRODUCT_STORE_STATUS_RESTORE_COMPLETED  = 4,
+} s3eProductStoreStatus;
+
+/**
+ * Detailed information for a product form the store.
+ *
+ * Gives a localised product title, description and price plus status
+ * information. The store will return information using this structure via
+ * s3eProductInformationCallbackFn. The m_ProductStoreStatus value should be
+ * checked first to determine if the product is valid. It can also indicate
+ * general store status/error conditions.
+ * - S3E_PRODUCT_STORE_STATUS_NOT_FOUND indicates the product identified by
+ *   m_ProductID was not found in the store - other member values are invalid.
+ * - S3E_PRODUCT_STORE_STATUS_NO_CONNECTION indicates a connection with the
+ *   store could not be established - all members including m_ProductID are
+ *   invalid.
+ * - S3E_PRODUCT_STORE_STATUS_RESTORE_FAILED indicates an attempt to restore
+ *   products through s3eIOSAppStoreBillingRestoreCompletedTransactions failed -
+ *   m_ProductID and other members are invalid.
+ *
+ * @see s3eIOSAppStoreBillingRequestProductInformation
+ * @see s3eIOSAppStoreBillingRestoreCompletedTransactions
+ * @see s3eProductInformationCallbackFn
+ */
+typedef struct s3eProductInformation
+{
+    /** The product identifier string */
+    char                   m_ProductID[S3E_IOSAPPSTOREBILLING_STRING_MAX];
+
+    /**
+     * The status/validity of the product in the store.
+     */
+    s3eProductStoreStatus  m_ProductStoreStatus;
+
+    /**
+     * Localised title of the product
+     */
+    char                   m_LocalisedTitle[S3E_IOSAPPSTOREBILLING_STRING_MAX];
+
+    /**
+     * Localised product description
+     */
+    char                   m_LocalisedDescription[S3E_IOSAPPSTOREBILLING_STRING_MAX];
+
+    /**
+     * Localised price as a decimal integer in 1/100th of the local currency.
+     * e.g. If m_PriceLocale is "en_US", a value of 99 represents $0.99.
+     */
+    uint32                 m_Price;
+
+    /**
+     * Region from which the price is given. This takes the form of a language-country
+     * code pair using the ISO 639 and ISO 3166 formats respectively.
+     * See ::S3E_DEVICE_LOCALE for more information.
+     */
+    char                   m_PriceLocale[S3E_IOSAPPSTOREBILLING_PRICE_STRING_MAX];
+
+    /**
+     * Localised formatted price string, e.g. "$0.99"
+     */
+    char                   m_FormattedPrice[S3E_IOSAPPSTOREBILLING_PRICE_STRING_MAX];
+} s3eProductInformation;
+
+/**
+ * Structure identifying a payment request, for a quantity of a certain product.
+ *
+ * @see s3ePaymentTransaction
+ * @see s3eIOSAppStoreBillingRequestPayment
+ */
+typedef struct s3ePaymentRequest
+{
+    /**
+     * Product identifier string
+     */
+    char            m_ProductID[S3E_IOSAPPSTOREBILLING_STRING_MAX];
+
+    /**
+     * Quantity required
+     */
+    uint32          m_Quantity;
+} s3ePaymentRequest;
+
+/**
+ * Enumeration indicating transaction status.
+ *
+ * This is passed to s3ePaymentTransactionUpdateCallbackFn as a member of
+ * an s3ePaymentTransaction struct whenever updated information regarding a
+ * transaction is available.
+ * @see s3ePaymentTransactionUpdateCallbackFn
+ * @see s3ePaymentTransaction
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+typedef enum s3eTransactionStatus
+{
+    /**
+     * The payment is awaiting authorisation.
+     */
+    S3E_PAYMENT_STATUS_PENDING                      = 0,
+
+    /**
+     * The payment has been processed; the feature must now be made available.
+     */
+    S3E_PAYMENT_STATUS_PURCHASED                    = 1,
+
+    /**
+     * Payment was already made; the feature must now be made available.
+     */
+    S3E_PAYMENT_STATUS_RESTORED                     = 2,
+
+    /**
+     * The payment has failed because the client is not allowed to make purchases.
+     * For example, the user account is not correctly set up for making purchases.
+     */
+    S3E_PAYMENT_STATUS_FAILED_CLIENT_INVALID        = 3,
+
+    /**
+     * The payment has failed because the user cancelled.
+     */
+    S3E_PAYMENT_STATUS_FAILED_PAYMENT_CANCELLED     = 4,
+
+    /**
+     * The payment has failed because one or more purchase parameters, such as
+     * the product identifier, was invalid.
+     */
+    S3E_PAYMENT_STATUS_FAILED_PAYMENT_INVALID       = 5,
+
+    /**
+     * The payment has failed because the device is not allowed to make the payment.
+     * For example, the device's restriction settings have been set to not allow purchases.
+     */
+    S3E_PAYMENT_STATUS_FAILED_PAYMENT_NOT_ALLOWED   = 6,
+
+    /**
+     * The payment has failed, reason unknown. A likely cause is lack of
+     * connection to the iTunes store.
+     */
+    S3E_PAYMENT_STATUS_FAILED_UNKNOWN_ERROR         = 7
+} s3eTransactionStatus;
+
+/**
+ * Structure representing a receipt for a successful purchase from the app store.
+ *
+ * m_ReceiptData is a signed chunk of data that can be used to verify with the Store
+ * that the payment was successfully processed.  This is useful because the device
+ * typically can not be trusted and your server can use this to verify that the payment
+ * actually occurred.
+ * See the "iOS App Store Billing Overview" section of the S3E API Documentation.
+ */
+typedef struct s3eTransactionReceipt
+{
+    /**
+     * Pointer to Receipt data
+     */
+    void*                        m_ReceiptData;
+
+    /**
+     * Size of data pointed to by m_ReceiptData
+     */
+    uint32                       m_ReceiptSize;
+} s3eTransactionReceipt;
+
+/**
+ * Describes a payment transaction currently being processed.
+ *
+ * Contains the request and payment status information plus a unique ID and
+ * pointer to the receipt if the transaction is ready to be completed.
+ *
+ * Valid s3ePaymentTransaction structs are only ever returned via the
+ * s3ePaymentTransactionUpdateCallbackFn callback; they should not be
+ * created by the application and member values should not be changed apart
+ * from m_Retain. By default, m_Retain is false and a transaction is only valid
+ * for the duration of the callback, after which it will be released, and also
+ * finalised with the app store if m_TransactionStatus was
+ * S3E_PAYMENT_STATUS_PURCHASED or S3E_PAYMENT_STATUS_RESTORED.
+ *
+ * By setting m_Retain true, the struct instance remains valid - it will not be
+ * released or finalised but should be released later.
+ *
+ * The reccommended behaviour is to set m_Retain true, use m_TransactionReceipt
+ * to asynchronously verify the purchase with a private server and provide/
+ * unlock any relevant content. s3eIOSAppStoreBillingCompleteTransaction should
+ * be called to release the transaction and optionally finalise it if the
+ * verification/provision completed successfully.
+ *
+ * @see s3eIOSAppStoreBillingCompleteTransaction
+ * @see s3ePaymentTransactionUpdateCallbackFn
+ */
+typedef struct s3ePaymentTransaction
+{
+    /**
+     * Payment request that originated this transaction
+     */
+    s3ePaymentRequest*          m_Request;
+
+    /**
+     * Globally unique transaction identifier string, generated by the Store.
+     * Only valid when ::m_TransactionStatus is ::S3E_PAYMENT_STATUS_PURCHASED
+     * or ::S3E_PAYMENT_STATUS_RESTORED
+     */
+    char                        m_TransactionID[S3E_IOSAPPSTOREBILLING_STRING_MAX];
+
+    /**
+     * Original transaction ID for a product that was restored.
+     * Only valid if ::m_TransactionStatus is S3E_PAYMENT_STATUS_RESTORED.
+     * If the product was restored, a new value is generated for m_TransactionID
+     * and this value will be set to the ID of the original purchase transaction.
+     * See s3eIOSAppStoreBillingRestoreCompletedTransactions() for more information.
+     */
+    char                        m_OriginalTransactionID[S3E_IOSAPPSTOREBILLING_STRING_MAX];
+
+    /**
+     * Transaction receipt. Only valid when m_TransactionStatus is
+     * ::S3E_PAYMENT_STATUS_PURCHASED or ::S3E_PAYMENT_STATUS_RESTORED
+     */
+    s3eTransactionReceipt*      m_TransactionReceipt;
+
+    /**
+     * Transaction status. If set to S3E_PAYMENT_STATUS_PURCHASED or
+     * S3E_PAYMENT_STATUS_RESTORED
+     */
+    s3eTransactionStatus        m_TransactionStatus;
+
+    /**
+     * Whether this s3ePaymentTransaction instance should be retained beyond
+     * the lifespan of the callback it was returned to. This will be set to
+     * S3E_FALSE initially. If m_TransactionStatus is S3E_PAYMENT_STATUS_PURCHASED or
+     * S3E_PAYMENT_STATUS_RESTORED and m_Retain remains false, the transaction
+     * will be finalised with the app store after the callback. Recommended
+     * behaviour is to set this true in this situation and finalise the
+     * transaction when the purchased feature is unlocked.
+     */
+    s3eBool                     m_Retain;
+} s3ePaymentTransaction;
+
+/**
+ * Callback function to report that a transaction has been updated.
+ *
+ * @e transaction provides a full description of the transaction's details. Note that any memory pointed to via
+ * transaction is allocated internally and will be freed by Marmalade/StoreKit when it is no longer required.
+ * The transaction can be retained beyond the life of the callback by setting its m_Retain member true, in which
+ * case it must later be released by passing it to s3eIOSAppStoreBillingCompleteTransaction. If m_Retain remains
+ * false, @e transaction - and the s3ePaymentRequest and s3eTransactionReceipt structs referenced by it - will
+ * not be valid after the callback has finished. In this case, they must be copied to local variables before
+ * the function returns if they still required. If the m_TransactionStatus value of @e transaction
+ * is S3E_PAYMENT_STATUS_PENDING, further callbacks will be issued for this product until the transaction completes.
+ * If the status is S3E_PAYMENT_STATUS_PURCHASED or S3E_PAYMENT_STATUS_RESTORED and m_Retain remains false, the
+ * transaction will be finalised with the store directly after the completion of this function.
+ * @param transaction   The updated transaction.
+ * @param userData      The userData value passed to s3eIOSAppStoreBillingStart.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+typedef void (*s3ePaymentTransactionUpdateCallbackFn)(s3ePaymentTransaction* transaction, void* userData);
+
+/**
+ * Callback function to report the results of a product information request.
+ *
+ * This callback is registered when calling s3eIOSAppStoreBillingStart() and
+ * will have all product information, obtained by calling
+ * s3eIOSAppStoreBillingRequestProductInformation(), passed to it.
+ *
+ * The @e m_ProductStoreStatus member of @e productInfo indicates if the
+ * product is a valid product for purchase in the store. If productInfo is a
+ * valid product, it provides a detailed description of the product. If the
+ * product is not found in the store, other member values will be null.
+ * If the m_ProductStoreStatus member of productInfo is
+ * S3E_PRODUCT_STORE_STATUS_NO_CONNECTION, this indicates that the store could
+ * not be contacted. Any ongoing requests will have been cancelled and
+ * s3eProductInformationCallbackFn will not be called again until another
+ * call to s3eIOSAppStoreBillingRequestProductInformation() is made.
+ *
+ * @param productInfo   Pointer to the requested product information. Only
+ *                      valid for the duration of the callback.
+ * @param userData      The value passed as the @e userData param to
+ *                      s3eIOSAppStoreBillingStart().
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+typedef void (*s3eProductInformationCallbackFn)(s3eProductInformation* productInfo, void* userData);
 
 functions:
 
 /**
- * Gets the value for an iAd property.
+ * Initialises iOS App Store Billing functionality.
  *
- * @see s3eIOSIAdProperty
- * @see s3eIOSIAdSetInt
- * @par Required Header Files
- * s3eIOSIAd.h
+ * Registers callbacks functions to be called when new product and payment information
+ * becomes available. If this function is not yet called, all iOS App Store Billing
+ * request functions will return immediately with S3E_RESULT_ERROR.
+ * @param infoCallback   This callback is issued when the app receives localised
+ *                       product information from the store.
+ * @param updateCallback This callback is issued when any of the transaction payments
+ *                       change state. Note the updateCallback is issued on start-up
+ *                       for any purchased items in the queue which have not been finalised.
+ * @param userData       The userdata pointer passed to both callback functions. This
+ *                       allows optional extra user data to be passed to the callbacks.
+ *                       Default behaviour is to set this to NULL.
+ * @return
+ * - @ref S3E_RESULT_SUCCESS if no error occurred.
+ * - @ref S3E_RESULT_ERROR if the operation failed.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-int32 s3eIOSIAdGetInt(s3eIOSIAdProperty prop) -1
+s3eResult s3eIOSAppStoreBillingStart(s3eProductInformationCallbackFn infoCallback, s3ePaymentTransactionUpdateCallbackFn updateCallback, void* userData) S3E_RESULT_ERROR
 
 /**
- * Sets the value for an iAd property.
+ * Terminates ongoing iOS App Store Billing functionality.
  *
- * @see s3eIOSIAdProperty
- * @see s3eIOSIAdGetInt
- * @par Required Header Files
- * s3eIOSIAd.h
+ * Unregisters callbacks that were registered with s3eIOSAppStoreBillingStart, cancels
+ * any requests sent to the store with s3eIOSAppStoreBillingRequestProductInformation
+ * and releases any internal memory used. This should be called when terminating the
+ * application or its store front if not waiting for any server responses.
+ * Note that any payment requests sent will still be processed by the store but the
+ * application will not receive any callbacks. Therefore this function should not
+ * be called if any payment requests are ongoing.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-s3eResult s3eIOSIAdSetInt(s3eIOSIAdProperty prop, int32 value) S3E_RESULT_ERROR run_on_os_thread
+void s3eIOSAppStoreBillingStop() void
 
 /**
- * Start displaying in-app advertising.
- *
- * @see s3eIOSIAdStop
- * @see s3eIOSIAdCancel
- * @par Required Header Files
- * s3eIOSIAd.h
+ * Retrieves an integer property for S3E iOS App Store Billing.
+ * @param property property to get.
+ * @return
+ * - The value of the requested property if property is valid.
+ * - -1 if the property is not valid.
+ * @see s3eIOSAppStoreBillingProperty
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-s3eResult s3eIOSIAdStart() S3E_RESULT_ERROR run_on_os_thread
+int32 s3eIOSAppStoreBillingGetInt(s3eIOSAppStoreBillingProperty property) -1
 
 /**
- * Stop displaying in-app advertising.
- *
- * @see s3eIOSIAdStart
- * @see s3eIOSIAdCancel
- * @par Required Header Files
- * s3eIOSIAd.h
+ * Requests localised information, such as title and price, for an array of product
+ * identifiers.
+ * @param productIdentifiers An array of numProductIdentifiers product identifiers
+ *                           as char* strings supplied by the application. For each
+ *                           product identifier supplied, the
+ *                           s3eProductInformationCallbackFn passed to
+ *                           s3eIOSAppStoreBillingStart will be called.
+ * @param numProductIdentifiers The number of product identifiers in the array
+ * @return
+ * - @ref S3E_RESULT_SUCCESS if no error occurred.
+ * - @ref S3E_RESULT_ERROR if the operation failed.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-s3eResult s3eIOSIAdStop() S3E_RESULT_ERROR run_on_os_thread
+s3eResult s3eIOSAppStoreBillingRequestProductInformation(const char** productIdentifiers, uint32 numProductIdentifiers) S3E_RESULT_ERROR
 
 /**
- * Cancel any current banner action taking place.
+ * Cancels any currently active requests that were started with any calls
+ * to s3eIOSAppStoreBillingRequestProductInformation.
  *
- * A banner may cover part of an application's interface when it's view action
- * is triggered (for example, if it expands to cover more of the screen when
- * touched). This function allows the application to programatically cancel
- * such an event and guarantee that the application is fully displayed, at the
- * cost of possible revenue loss.
- *
- * @see s3eIOSIAdRegister
- * @see s3eIOSIAdUnRegister
- * @par Required Header Files
- * s3eIOSIAd.h
+ * This will prevent any functions registered for s3eProductInformationCallbackFn
+ * from being subsequently called.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
  */
-s3eResult s3eIOSIAdCancel() S3E_RESULT_ERROR run_on_os_thread
+void s3eIOSAppStoreBillingCancelProductInformationRequests() void
+
+/**
+ * Requests payment for an item.
+ *
+ * The result of the request is returned in an s3ePaymentTransaction struct to
+ * the s3ePaymentTransactionUpdateCallbackFn. The s3ePaymentTransaction will
+ * have a matching product ID string to that in paymentRequest.
+ * @param paymentRequest Pointer to an s3ePaymentRequest specifying the
+ *                       product ID and quantity the user wishes to purchase
+ * @return
+ * - @ref S3E_RESULT_SUCCESS if no error occurred.
+ * - @ref S3E_RESULT_ERROR if the operation failed.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+s3eResult s3eIOSAppStoreBillingRequestPayment(s3ePaymentRequest* paymentRequest) S3E_RESULT_ERROR
+
+/**
+ * Sends a request to the store to restore all transactions for the application
+ * that have been completed at any time for this application. This can be used
+ * to obtain all already-purchased non-consumable products when the app is restored
+ * or synced to another device to the one that they were originally purchased on.
+ *
+ * Successfully restored transactions will be returned - via the
+ * s3ePaymentTransactionUpdateCallbackFn callback that was registered with
+ * s3eIOSAppStoreBillingStart() - as if they were being newly purchased but
+ * with an s3eTransactionStatus value of S3E_PAYMENT_STATUS_RESTORED and no charge
+ * will be made to the users account. If an error occurs, the
+ * s3eProductInformationCallbackFn will be called with the status set to
+ * S3E_PRODUCT_STORE_STATUS_RESTORE_FAILED.
+ * @return
+ * - @ref S3E_RESULT_SUCCESS if no error occurred.
+ * - @ref S3E_RESULT_ERROR if the operation failed.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+s3eResult s3eIOSAppStoreBillingRestoreCompletedTransactions() S3E_RESULT_ERROR
+
+/**
+ * Release/finalise an s3ePaymentTransaction for a purchased item that has been
+ * fulfilled or is no longer required.
+ *
+ * s3ePaymentTransaction instances are only obtained via the
+ * s3ePaymentTransactionUpdateCallbackFn and will only remain valid after that
+ * callback returns if their m_Retain value was set true by the application.
+ *
+ * This function must be called once an s3ePaymentTransaction is no longer
+ * required in order to release it internally. s3ePaymentTransaction instances
+ * can only be freed by calling this function. The finalise parameter notifies
+ * the store that the application has permanently finished with the transaction
+ * - i.e, if it represents a purchased item, setting it to true indicates that
+ * the receipt has been validated and any purchased content has been provided/
+ * unlocked. The store will then no longer send any notifications to the device
+ * about this transaction.
+ *
+ * If finalise is false, the transaction is released from any internal queues
+ * but the store will notify the application again at some future point because
+ * it has not been informed that the transaction was fulfilled. Set this value
+ * false to release memory for a purchased item that has failed to be
+ * fulfilled, for example due to server connection failure. The will have
+ * already been billed and the app store will send the transaction information
+ * again at a future point to attempt to complete the purchase.
+ * @param transaction  An s3ePaymentTransaction pointer that was obtained via
+ *                     s3ePaymentTransactionUpdateCallbackFn and retained.
+ * @param finalise     If true, the transaction will be "finalised" - the store
+ *                     will no longer send notifications for it if its state
+ *                     was anything except S3E_PAYMENT_STATUS_PENDING.
+ * @return
+ * - @ref S3E_RESULT_SUCCESS if no error occurred.
+ * - @ref S3E_RESULT_ERROR if the operation failed.
+ * @par Required Header Files:
+ * s3eIOSAppStoreBilling.h
+ */
+s3eResult s3eIOSAppStoreBillingCompleteTransaction(s3ePaymentTransaction* transaction, s3eBool finalise) S3E_RESULT_ERROR
+
+/**
+ * @deprecated Use s3eIOSAppStoreBillingStart()
+ */
+s3eResult s3eIOSAppStoreBillingInit(s3eProductInformationCallbackFn infoCallback, s3ePaymentTransactionUpdateCallbackFn updateCallback, void* userData) s3eIOSAppStoreBillingStart S3E_RESULT_ERROR
+
+/**
+ * @deprecated Use s3eIOSAppStoreBillingStop()
+ */
+void s3eIOSAppStoreBillingTerminate() s3eIOSAppStoreBillingStop void
 
 append:
-/**@}*/
-/**@}*/
+/** @} */
